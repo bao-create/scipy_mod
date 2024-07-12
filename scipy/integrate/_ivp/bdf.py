@@ -1,5 +1,5 @@
 import numpy as np
-from scipy.linalg import lu_factor, lu_solve
+from scipy.linalg import lu_factor, lu_solve, cho_factor, cho_solve
 from scipy.sparse import issparse, csc_matrix, eye
 from scipy.sparse.linalg import splu
 from scipy.optimize._numdiff import group_columns
@@ -67,6 +67,15 @@ def solve_bdf_system(fun, t_new, y_predict, c, psi, LU, solve_lu, scale, tol):
         dy_norm_old = dy_norm
 
     return converged, k + 1, y, d
+
+def checkChol(J)->bool:
+    n = J.shape[0]
+    I = np.identity(n)
+    test_c = .08
+    A = I - test_c*J
+    chol_A = np.linalg.cholesky(A)
+    return chol_A.dot(chol_A.T) == A
+
 
 
 class BDF(OdeSolver):
@@ -217,24 +226,37 @@ class BDF(OdeSolver):
 
         self.jac_factor = None
         self.jac, self.J = self._validate_jac(jac, jac_sparsity)
-        if issparse(self.J):
-            def lu(A):
-                self.nlu += 1
-                return splu(A)
-
-            def solve_lu(LU, b):
-                return LU.solve(b)
-
-            I = eye(self.n, format='csc', dtype=self.y.dtype)
+        self.isChol = checkChol(self.J)
+        if self.isChol:
+            self.nchol = 0
+            def chol(A):
+                self.nchol+=1
+                return cho_factor(A)
+            def solve_chol(CF,b):
+                return cho_solve(CF,b)
+            I = np.identity(self.n,dtype=self.y.dtype)
+            self.chol = chol
+            self.solve_chol = solve_chol
+            self.CF = None
         else:
-            def lu(A):
-                self.nlu += 1
-                return lu_factor(A, overwrite_a=True)
+            if issparse(self.J):
+                def lu(A):
+                    self.nlu += 1
+                    return splu(A)
 
-            def solve_lu(LU, b):
-                return lu_solve(LU, b, overwrite_b=True)
+                def solve_lu(LU, b):
+                    return LU.solve(b)
 
-            I = np.identity(self.n, dtype=self.y.dtype)
+                I = eye(self.n, format='csc', dtype=self.y.dtype)
+            else:
+                def lu(A):
+                    self.nlu += 1
+                    return lu_factor(A, overwrite_a=True)
+
+                def solve_lu(LU, b):
+                    return lu_solve(LU, b, overwrite_b=True)
+
+                I = np.identity(self.n, dtype=self.y.dtype)
 
         self.lu = lu
         self.solve_lu = solve_lu
@@ -331,7 +353,10 @@ class BDF(OdeSolver):
         error_const = self.error_const
 
         J = self.J
-        LU = self.LU
+        if self.isChol:
+            CF = self.CF
+        else:
+            LU = self.LU
         current_jac = self.jac is None
 
         step_accepted = False
@@ -346,7 +371,10 @@ class BDF(OdeSolver):
                 t_new = self.t_bound
                 change_D(D, order, np.abs(t_new - t) / h_abs)
                 self.n_equal_steps = 0
-                LU = None
+                if self.isChol:
+                    CF = None
+                else:
+                    LU = None
 
             h = t_new - t
             h_abs = np.abs(h)
@@ -359,26 +387,36 @@ class BDF(OdeSolver):
             converged = False
             c = h / alpha[order]
             while not converged:
-                if LU is None:
-                    LU = self.lu(self.I - c * J)
+                if self.isChol:
+                    if CF is None:
+                        CF = self.chol(self.I - c * J)
+                    converged, n_iter, y_new, d = solve_bdf_system(
+                        self.fun, t_new, y_predict, c, psi, CF, self.solve_chol,
+                        scale, self.newton_tol)
+                else:
+                    if LU is None:
+                        LU = self.lu(self.I - c * J)
 
-                converged, n_iter, y_new, d = solve_bdf_system(
-                    self.fun, t_new, y_predict, c, psi, LU, self.solve_lu,
-                    scale, self.newton_tol)
+                    converged, n_iter, y_new, d = solve_bdf_system(
+                        self.fun, t_new, y_predict, c, psi, LU, self.solve_lu,
+                        scale, self.newton_tol)
 
-                if not converged:
-                    if current_jac:
-                        break
-                    J = self.jac(t_new, y_predict)
-                    LU = None
-                    current_jac = True
+                    if not converged:
+                        if current_jac:
+                            break
+                        J = self.jac(t_new, y_predict)
+                        LU = None
+                        current_jac = True
 
             if not converged:
                 factor = 0.5
                 h_abs *= factor
                 change_D(D, order, factor)
                 self.n_equal_steps = 0
-                LU = None
+                if self.isChol:
+                    CF = None
+                else:
+                    LU = None
                 continue
 
             safety = 0.9 * (2 * NEWTON_MAXITER + 1) / (2 * NEWTON_MAXITER
@@ -406,7 +444,10 @@ class BDF(OdeSolver):
 
         self.h_abs = h_abs
         self.J = J
-        self.LU = LU
+        if self.isChol:
+            self.CF = CF
+        else:
+            self.LU = LU
 
         # Update differences. The principal relation here is
         # D^{j + 1} y_n = D^{j} y_n - D^{j} y_{n - 1}. Keep in mind that D
@@ -444,7 +485,10 @@ class BDF(OdeSolver):
         self.h_abs *= factor
         change_D(D, order, factor)
         self.n_equal_steps = 0
-        self.LU = None
+        if self.isChol:
+            self.CF = None
+        else:
+            self.LU = None
 
         return True, None
 
