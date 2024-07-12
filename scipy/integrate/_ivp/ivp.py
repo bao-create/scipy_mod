@@ -742,7 +742,10 @@ def solve_ivp(fun, t_span, y0, method='RK45', t_eval=None, dense_output=False,
             )
     else:
         sol = None
-
+    if solver.isChol:
+        n_eval = solver.nchol
+    else:
+        n_eval = solver.nlu
     return OdeResult(t=ts, y=ys, sol=sol, t_events=t_events, y_events=y_events,
-                     nfev=solver.nfev, njev=solver.njev, nlu=solver.nlu,
+                     nfev=solver.nfev, njev=solver.njev, nlu=n_eval,
                      status=status, message=message, success=status >= 0)

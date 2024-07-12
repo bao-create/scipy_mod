@@ -74,7 +74,7 @@ def checkChol(J)->bool:
     test_c = .08
     A = I - test_c*J
     chol_A = np.linalg.cholesky(A)
-    return chol_A.dot(chol_A.T) == A
+    return not np.any(chol_A.dot(chol_A.T) != A) #check if it is True that any element does not equal A. Then reverse.
 
 
 
