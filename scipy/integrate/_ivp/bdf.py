@@ -73,8 +73,14 @@ def checkChol(J)->bool:
     I = np.identity(n)
     test_c = .08
     A = I - test_c*J
-    chol_A = np.linalg.cholesky(A)
-    return not np.any(chol_A.dot(chol_A.T) != A) #check if it is True that any element does not equal A. Then reverse.
+    if np.allclose(A, A.T):
+        try:
+            np.linalg.cholesky(A)
+            return True
+        except np.linalg.LinAlgError:
+            return False
+    else:
+        return False
 
 
 
