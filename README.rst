@@ -25,7 +25,6 @@ integration, linear algebra, Fourier transforms, signal and image processing,
 ODE solvers, and more.
 
 test for me
-
 - **Website:** https://scipy.org
 - **Documentation:** https://docs.scipy.org/doc/scipy/
 - **Development version of the documentation:** https://scipy.github.io/devdocs
