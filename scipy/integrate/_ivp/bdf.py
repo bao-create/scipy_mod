@@ -259,6 +259,7 @@ class BDF(OdeSolver):
             def par(A,b):
                 self.nlu+=1
                 return pypardiso(A,b)
+            self.par = par
             I = eye(self.n, format='csc', dtype=self.y.dtype)
         else:
             if issparse(self.J):
