@@ -49,7 +49,7 @@ def solve_bdf_system(fun, t_new, y_predict, c, psi, LU, solve_lu, scale, tol,**k
         if not np.all(np.isfinite(f)):
             break
         if usePardiso:
-            dy = solve_lu(LU,c * f - psi - d) #Lu maps to A, and solve_lu is self.par
+            dy = LU(c * f - psi - d) #In this case LU is a callable from pypardiso
         else:
             dy = solve_lu(LU, c * f - psi - d)
         dy_norm = norm(dy / scale)
@@ -418,8 +418,9 @@ class BDF(OdeSolver):
                         scale, self.newton_tol)
                 elif self.usePardiso:
                     A = self.I - c * J
+                    Af = pypardiso.factorized(A) #returns callable
                     converged, n_iter, y_new, d = solve_bdf_system(
-                        self.fun, t_new, y_predict, c, psi, A, self.par,
+                        self.fun, t_new, y_predict, c, psi, Af, None,
                         scale, self.newton_tol,usePardiso=self.usePardiso)
                 else:
                     if LU is None:
