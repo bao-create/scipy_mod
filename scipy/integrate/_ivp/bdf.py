@@ -430,12 +430,12 @@ class BDF(OdeSolver):
                         self.fun, t_new, y_predict, c, psi, LU, self.solve_lu,
                         scale, self.newton_tol)
 
-                    if not converged:
-                        if current_jac:
-                            break
-                        J = self.jac(t_new, y_predict)
-                        LU = None
-                        current_jac = True
+                if not converged:
+                    if current_jac:
+                        break
+                    J = self.jac(t_new, y_predict)
+                    LU = None
+                    current_jac = True
 
             if not converged:
                 factor = 0.5
