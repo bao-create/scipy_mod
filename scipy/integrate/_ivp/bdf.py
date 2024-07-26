@@ -2,6 +2,7 @@ import numpy as np
 from scipy.linalg import lu_factor, lu_solve, cho_factor, cho_solve
 from scipy.sparse import issparse, csc_matrix, eye
 from scipy.sparse.linalg import splu
+import pypardiso
 from scipy.optimize._numdiff import group_columns
 from .common import (validate_max_step, validate_tol, select_initial_step,
                      norm, EPS, num_jac, validate_first_step,
@@ -33,18 +34,24 @@ def change_D(D, order, factor):
     D[:order + 1] = np.dot(RU.T, D[:order + 1])
 
 
-def solve_bdf_system(fun, t_new, y_predict, c, psi, LU, solve_lu, scale, tol):
+def solve_bdf_system(fun, t_new, y_predict, c, psi, LU, solve_lu, scale, tol,**kwargs):
     """Solve the algebraic system resulting from BDF method."""
     d = 0
     y = y_predict.copy()
     dy_norm_old = None
     converged = False
+    try:
+        usePardiso = kwargs["usePardiso"]
+    except:
+        usePardiso = False
     for k in range(NEWTON_MAXITER):
         f = fun(t_new, y)
         if not np.all(np.isfinite(f)):
             break
-
-        dy = solve_lu(LU, c * f - psi - d)
+        if usePardiso:
+            dy = solve_lu(LU,c * f - psi - d) #Lu maps to A, and solve_lu is self.par
+        else:
+            dy = solve_lu(LU, c * f - psi - d)
         dy_norm = norm(dy / scale)
 
         if dy_norm_old is None:
@@ -232,6 +239,10 @@ class BDF(OdeSolver):
 
         self.jac_factor = None
         self.jac, self.J = self._validate_jac(jac, jac_sparsity)
+        try:
+            self.usePardiso = extraneous["usePardiso"]
+        except:
+            self.usePardiso = False
         self.isChol = checkChol(self.J)
         if self.isChol:
             self.nchol = 0
@@ -244,6 +255,11 @@ class BDF(OdeSolver):
             self.chol = chol
             self.solve_chol = solve_chol
             self.CF = None
+        elif self.usePardiso and issparse(self.J):
+            def par(A,b):
+                self.nlu+=1
+                return pypardiso(A,b)
+            I = eye(self.n, format='csc', dtype=self.y.dtype)
         else:
             if issparse(self.J):
                 def lu(A):
@@ -264,8 +280,8 @@ class BDF(OdeSolver):
 
                 I = np.identity(self.n, dtype=self.y.dtype)
 
-        self.lu = lu
-        self.solve_lu = solve_lu
+            self.lu = lu
+            self.solve_lu = solve_lu
         self.I = I
 
         kappa = np.array([0, -0.1850, -1/9, -0.0823, -0.0415, 0])
@@ -399,9 +415,15 @@ class BDF(OdeSolver):
                     converged, n_iter, y_new, d = solve_bdf_system(
                         self.fun, t_new, y_predict, c, psi, CF, self.solve_chol,
                         scale, self.newton_tol)
+                elif self.usePardiso:
+                    A = self.I - c * J
+                    converged, n_iter, y_new, d = solve_bdf_system(
+                        self.fun, t_new, y_predict, c, psi, A, self.par,
+                        scale, self.newton_tol,usePardiso=self.usePardiso)
                 else:
                     if LU is None:
                         LU = self.lu(self.I - c * J)
+
 
                     converged, n_iter, y_new, d = solve_bdf_system(
                         self.fun, t_new, y_predict, c, psi, LU, self.solve_lu,
