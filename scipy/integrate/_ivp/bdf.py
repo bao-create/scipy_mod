@@ -77,6 +77,8 @@ def solve_bdf_system(fun, t_new, y_predict, c, psi, LU, solve_lu, scale, tol,**k
 
 def checkChol(J)->bool:
     n = J.shape[0]
+    if issparse(J):
+        return False #no sparse chol routine
     I = np.identity(n)
     test_c = .08
     A = I - test_c*J
@@ -241,9 +243,10 @@ class BDF(OdeSolver):
         self.jac, self.J = self._validate_jac(jac, jac_sparsity)
         try:
             self.usePardiso = extraneous["usePardiso"]
+            self.isChol = False
         except:
             self.usePardiso = False
-        self.isChol = checkChol(self.J)
+            self.isChol = checkChol(self.J)
         if self.isChol:
             self.nchol = 0
             def chol(A):
